@@ -1,0 +1,10 @@
+name = "Multigrid"
+uuid = "ff3b5ca6-ce97-402f-ba93-036070bf383f"
+authors = ["Alejandro Luque <aluque@iaa.es>"]
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
+Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
