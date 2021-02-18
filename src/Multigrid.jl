@@ -4,7 +4,10 @@ using LinearAlgebra
 using SparseArrays
 using Parameters
 
-export MGConfig, solve
+export MGConfig
+export LeftBnd, RightBnd, TopBnd, BottomBnd, FrontBnd, BackBnd
+export Dirichlet, Neumann
+export CartesianConnector, CylindricalConnector
 
 include("redblack.jl")
 include("boundaries.jl")
@@ -26,18 +29,21 @@ struct CartesianConnector <: AbstractConnector end
 struct CylindricalConnector{D} <: AbstractConnector end
 
 
-@with_kw struct MGConfig{T<:Tuple, C<:AbstractConnector}
+@with_kw struct MGConfig{T, TBC<:Tuple, C<:AbstractConnector}
     " Boundary condition as a tuple of tuples (boundary, condition)."
-    bc::T
+    bc::TBC
 
     " Geometrical connector to specify e.g. cylindrical symmetry. "
     conn::C
     
+    " Multiplication constant for the lhs. "
+    s::T
+
     " Number of levels of coarsening. "
     levels::Int
 
     " Allowed tolerance. "
-    tolerance::Float64
+    tolerance::T
     
     " Smoothing iterations before restriction/interpolation"
     smooth1::Int
@@ -68,8 +74,9 @@ function (::CylindricalConnector{D})(c::CartesianIndex, d::CartesianIndex, x) wh
 end
 
 function inranges(a::AbstractArray{T, N}) where {T, N}
-    l = lastindex.(axes(a))
-    ntuple(n -> 1:(l[n] - 1), Val(N))
+    ng = 1 .- first.(axes(a))
+    l = last.(axes(a)) .- ng
+    ntuple(n -> 1:l[n], Val(N))
 end
 
 innerindices(a) = CartesianIndices(inranges(a))
@@ -333,15 +340,16 @@ function mgv!(conf::MGConfig, x, b, level, ws)
 end
 
 
-function fmg!(conf::MGConfig, x, b, s, ws)
+function fmg!(conf::MGConfig, x, b, ws)
     @assert size(x) == size(b)
-    @unpack bc, conn, levels, tolerance = conf
+    @unpack bc, conn, levels, tolerance, s = conf
 
     apply!(x, bc)
 
     # Note that s appears only here; in the rest of the code we assume s=1.
     residual!(ws.res[1], x, b, s, conn)
     eps = norm(ws.res[1]) / sqrt(prod(innersize(x)))
+
     #@show eps
     if (s * tolerance > eps)
         return false        
@@ -380,6 +388,7 @@ function fmg!(conf::MGConfig, x, b, s, ws)
     end
 
     x .+= z
+    apply!(x, bc)
 
     return true
 end
@@ -391,10 +400,10 @@ end
    using s=h^2.  If you want to compute the electrostatic potential 
    solving ∇²ϕ = -q/ϵ0, use s = h^2 / ϵ0. 
 """
-function solve(conf::MGConfig, x, b, s, ws)
+function solve(conf::MGConfig, x, b, ws)
     cont = true
     while cont
-        cont = fmg!(conf, x, b, s, ws)
+        cont = fmg!(conf, x, b, ws)
     end
 
     x

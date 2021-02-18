@@ -11,29 +11,33 @@ struct BottomBnd <: AbstractBoundary end
 struct FrontBnd <: AbstractBoundary end
 struct BackBnd <: AbstractBoundary end
 
-ghost2(a, ::BottomBnd)  = @view a[0, :]
-ghost2(a, ::TopBnd)     = @view a[end, :]
-ghost2(a, ::LeftBnd)    = @view a[:, 0]
-ghost2(a, ::RightBnd)   = @view a[:, end]
+ng(a, d) = 1 - first(axes(a)[d])
+gbegin(a, d) = 0
+gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
 
-ghost3(a, ::BottomBnd)  = @view a[0, :, :]
-ghost3(a, ::TopBnd)     = @view a[end, :, :]
-ghost3(a, ::LeftBnd)    = @view a[:, 0, :]
-ghost3(a, ::RightBnd)   = @view a[:, end, :]
-ghost3(a, ::FrontBnd)   = @view a[:, :, 0]
-ghost3(a, ::BackBnd)    = @view a[:, :, end]
+ghost2(a, ::BottomBnd)  = @view a[gbegin(a, 1), :]
+ghost2(a, ::TopBnd)     = @view a[gend(a, 1), :]
+ghost2(a, ::LeftBnd)    = @view a[:, gbegin(a, 2)]
+ghost2(a, ::RightBnd)   = @view a[:, gend(a, 2)]
+
+ghost3(a, ::BottomBnd)  = @view a[gbegin(a, 1), :, :]
+ghost3(a, ::TopBnd)     = @view a[gend(a, 1), :, :]
+ghost3(a, ::LeftBnd)    = @view a[:, gbegin(a, 2), :]
+ghost3(a, ::RightBnd)   = @view a[:, gend(a, 2), :]
+ghost3(a, ::FrontBnd)   = @view a[:, :, gbegin(a, 3)]
+ghost3(a, ::BackBnd)    = @view a[:, :, gend(a, 3)]
 
 valid2(a, ::BottomBnd)  = @view a[1, :]
-valid2(a, ::TopBnd)     = @view a[end - 1, :]
+valid2(a, ::TopBnd)     = @view a[end - ng(a, 1), :]
 valid2(a, ::LeftBnd)    = @view a[:, 1]
-valid2(a, ::RightBnd)   = @view a[:, end - 1]
+valid2(a, ::RightBnd)   = @view a[:, end - ng(a, 2)]
 
 valid3(a, ::BottomBnd)  = @view a[1, :, :]
-valid3(a, ::TopBnd)     = @view a[end - 1, :, :]
+valid3(a, ::TopBnd)     = @view a[end - ng(a, 1), :, :]
 valid3(a, ::LeftBnd)    = @view a[:, 1, :]
-valid3(a, ::RightBnd)   = @view a[:, end - 1, :]
+valid3(a, ::RightBnd)   = @view a[:, end - ng(a, 2), :]
 valid3(a, ::FrontBnd)   = @view a[:, :, 1]
-valid3(a, ::BackBnd)    = @view a[:, :, end - 1]
+valid3(a, ::BackBnd)    = @view a[:, :, end - ng(a, 3)]
 
 
 dim(::BottomBnd) = 1
@@ -96,7 +100,7 @@ end
 
 @generated function apply!(a, bc::T) where {T}
     L = fieldcount(T)
-    out = quote end
+    out = quote end 
 
     for i in 1:L
         push!(out.args,
