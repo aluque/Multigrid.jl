@@ -1,11 +1,19 @@
-@generated function redblack(f, a::AbstractArray{T, N}, parity) where {T, N}
+function rbranges(g, a::AbstractArray{T, N}) where {T, N}
+    t = ntuple(i -> (firstindex(a, i + 1) + g):(lastindex(a, i + 1) - g), Val(N - 1))
+    h = (firstindex(a, 1) + g):2:(lastindex(a, 1) - g)
+
+    (h, t...)
+end
+
+
+@generated function redblack(f, g, a::AbstractArray{T, N}, parity) where {T, N}
     if N == 2
         expr = quote
-            redblack2(f, a, parity)
+            redblack2(f, g, a, parity)
         end
     elseif N == 3
         expr = quote
-            redblack3(f, a, parity)
+            redblack3(f, g, a, parity)
         end
     else
         throw(ArgumentError("Only arrays with 2, 3 dimensions allowed"))
@@ -14,8 +22,8 @@
 end
         
 
-function redblack2(f, a::AbstractArray{T, N}, parity) where {T, N}
-    rng = rbranges(a)
+function redblack2(f, g, a::AbstractArray{T, N}, parity) where {T, N}
+    rng = rbranges(g, a)
     
     Threads.@threads for j in rng[2]
         p = xor(parity, iseven(j))
@@ -26,8 +34,8 @@ function redblack2(f, a::AbstractArray{T, N}, parity) where {T, N}
 end
 
 
-function redblack3(f, a::AbstractArray{T, N}, parity) where {T, N}
-    rng = rbranges(a)
+function redblack3(f, g, a::AbstractArray{T, N}, parity) where {T, N}
+    rng = rbranges(g, a)
             
     Threads.@threads for k in rng[3]   
         pk = xor(parity, iseven(k))
@@ -39,13 +47,3 @@ function redblack3(f, a::AbstractArray{T, N}, parity) where {T, N}
         end
     end
 end
-
-
-function rbranges(a::AbstractArray{T, N}) where {T, N}
-    l = lastindex.(axes(a))
-    t = ntuple(n -> 1:(l[n + 1] - 1), Val(N - 1))
-    h = 1:2:l[1] - 1
-
-    (h, t...)
-end
-

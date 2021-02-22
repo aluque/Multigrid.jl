@@ -46,6 +46,9 @@ struct CylindricalConnector{D} <: AbstractConnector end
 
     " Smoothing iterations after restriction/interpolation"
     smooth2::Int
+
+    " Number of ghost cells in each boundary (must be at least 1)."
+    g::Int = 1
 end
 
 
@@ -73,31 +76,27 @@ function (::CylindricalConnector{D})(c::CartesianIndex, d::CartesianIndex, x) wh
     x * (1.0 + d[D] / (2 * c[D] - 1))
 end
 
-function inranges(a::AbstractArray{T, N}) where {T, N}
-    ng = 1 .- first.(axes(a))
-    l = last.(axes(a)) .- ng
-    ntuple(n -> 1:l[n], Val(N))
+function inranges(g, a::AbstractArray{T, N}) where {T, N}
+    ntuple(n -> (firstindex(a, n) + g):(lastindex(a, n) - g), Val(N))
 end
 
-innerindices(a) = CartesianIndices(inranges(a))
-innersize(a) = length.(inranges(a))
+innerindices(g, a) = CartesianIndices(inranges(g, a))
+innersize(g, a) = length.(inranges(g, a))
 
 # Wrapper around the zeros function that works also for CUDA arrays
-function simzeros(a)
+function simzeros(g, a)
     s = similar(a)
-    parent(s) .= 0
+    s .= 0
     s
 end
 
-function simcoarser(a)
-    s = innersize(a)
-    zeros(eltype(a), map(n->0:(n ÷ 2 + 1), s)...)    
+function simcoarser(g, a::AbstractArray{T, N}) where {T, N}
+    zeros(eltype(a), ntuple(i->(size(a, i) - 2g) ÷ 2 + 2g, Val(N)))
 end
 
 
-function simfiner(a)
-    s = innersize(a)
-    zeros(eltype(a), map(n->0:(n * 2 + 1), s)...)    
+function simfiner(g, a::AbstractArray{T, N}) where {T, N}
+    zeros(eltype(a), ntuple(i->(size(a, i) - 2g) * 2 + 2g, Val(N)))
 end
 
 
@@ -145,58 +144,56 @@ end
    Update the potential `u` with Gauss-Seidel using the source `b`.
    `ω` is an over-relaxation parameter.
 """
-function gauss_seidel!(u, b, ω, c::AbstractConnector)
+function gauss_seidel!(g, u, b, ω, c::AbstractConnector)
     @assert size(u) == size(b)
     st = lplstencil(u)
 
     for parity in (false, true)
-        redblack(u, parity) do ind
+        redblack(g, u, parity) do ind
             l = laplacian(u, ind, st, c)
             @inbounds u[ind] += ω * (l + b[ind]) / length(st)
         end
     end
 end
-gauss_seidel!(u, b, ω) = gauss_seidel!(u, b, ω, CartesianConnector())
+gauss_seidel!(g, u, b, ω) = gauss_seidel!(g, u, b, ω, CartesianConnector())
 
 
 """
    Computes the residual of Laplace operator acting on u with rhs -b.
    The function computes Lu + s b where L is the discrete laplace operator.
 """
-function residual!(r, u, b, s, c::AbstractConnector)
+function residual!(g, r, u, b, s, c::AbstractConnector)
     st = lplstencil(u)
-
+    
     #Threads.@threads
-    for ind in innerindices(u)
+    for ind in innerindices(g, u)
         l = laplacian(u, ind, st, c)
         @inbounds r[ind] = s * b[ind] + l
     end
 end
 
-residual!(r, u, b, c::AbstractConnector) = residual!(r, u, b, 1.0, c)
-residual!(r, u, b, s) = residual!(r, u, b, s, CartesianConnector())
+residual!(g, r, u, b, c::AbstractConnector) = residual!(g, r, u, b, 1.0, c)
+residual!(g, r, u, b, s::Real) = residual!(g, r, u, b, s, CartesianConnector())
 
 
-function residualnorm(u, b, c::AbstractConnector)
-    r = simzeros(u)
-    residual!(r, u, b, c)
+function residualnorm(g, u, b, c::AbstractConnector)
+    r = simzeros(g, u)
+    residual!(g, r, u, b, c)
 
-    # I changed this to parent(r) because norm(p) uses scalar operations
-    # in CUDA.jl when p is a CuArray-supported OffsetArray.
-    # One must be careful that the ghost cells have been set up or are zero.
-    norm(parent(r))
+    norm(r)
 end
-residualnorm(u, b) = residualnorm(u, b, CartesianConnector())
+
+residualnorm(g, u, b) = residualnorm(g, u, b, CartesianConnector())
 
 
 
 """
     Restrict coarse grid `rh` into `r`.
 """
-function restrict!(rh, r)
+function restrict!(g, rh, r)
     st = cubestencil(r)
     
-    Threads.@threads for irh in innerindices(rh)
+    Threads.@threads for irh in innerindices(g, rh)
         ir = 2 * (irh - oneunit(irh)) + oneunit(irh)
         s = zero(eltype(r))
 
@@ -212,11 +209,11 @@ end
 """
     Interpolate form `rh` into `r`, adding it to the value already stored there.
 """
-function interpolate!(r, rh, update::Type{Val{V}}=Val{false}) where {V}
+function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
     st = cubestencil(r)
     weights = binterpweights(st)
     
-    Threads.@threads for irh in innerindices(rh)
+    Threads.@threads for irh in innerindices(g, rh)
         ir = 2 * (irh - oneunit(irh)) + oneunit(irh)
         for s in st
             # We will compute the value of cell in F at this location
@@ -240,9 +237,11 @@ function interpolate!(r, rh, update::Type{Val{V}}=Val{false}) where {V}
 end
 
 
-function buildmat(x, bc)
-    rngs = inranges(x)
-    cinds = innerindices(x)
+function buildmat(g, x, bc)
+    rngs = inranges(g, x)
+    G = CartesianIndex(ntuple(_->g, ndims(x)))
+    
+    cinds = innerindices(g, x) .- G
     lin = LinearIndices(cinds)
     
     n = length(cinds)
@@ -269,31 +268,32 @@ function buildmat(x, bc)
             end
         end
     end
+    
     factorize(mat)
 end
 
 
 function allocate(conf, x)
-    @unpack levels, bc = conf
+    @unpack levels, bc, g = conf
     
     res = typeof(x)[]
     sol = typeof(x)[]
     res1 = typeof(x)[]
     
-    push!(res, simzeros(x))
-    push!(sol, simzeros(x))
-    push!(res1, simzeros(x))
+    push!(res, simzeros(g, x))
+    push!(sol, simzeros(g, x))
+    push!(res1, simzeros(g, x))
 
     for i in 1:levels
-        push!(res, simcoarser(last(res)))
-        push!(res1, simcoarser(last(res1)))
-        push!(sol, simcoarser(last(sol)))
+        push!(res, simcoarser(g, last(res)))
+        push!(res1, simcoarser(g, last(res1)))
+        push!(sol, simcoarser(g, last(sol)))
     end
 
-    btop = vec(zeros(innersize(sol[end])...))
-    utop = vec(zeros(innersize(sol[end])...))
+    btop = vec(zeros(innersize(g, sol[end])...))
+    utop = vec(zeros(innersize(g, sol[end])...))
     
-    mat = buildmat(sol[end], bc)
+    mat = buildmat(g, sol[end], bc)
     Workspace(res, res1, sol, btop, utop, mat)
 end
 
@@ -301,50 +301,50 @@ end
 
 """ 
 
-Multigrid V-cycle. Improves a guess for the discrete 3D Poisson 
+Multigrid V-cycle. Improves a guess for the discrete Poisson 
 equation A.x == -b  where A is the discrete Laplacian operator with h=1.
     
 """
 function mgv!(conf::MGConfig, x, b, level, ws)
     @assert size(x) == size(b)
-    @unpack bc, conn, smooth1, smooth2, levels = conf
+    @unpack bc, conn, smooth1, smooth2, levels, g = conf
     
     st = lplstencil(x)
     
     if level == levels
         for i in 1:50
-            apply!(x, bc)
-            gauss_seidel!(x, b, 1.0, conn)
+            apply!(g, x, bc)
+            gauss_seidel!(g, x, b, 1.0, conn)
         end
         return x
     end
 
     for i in 1:smooth1
-        apply!(x, bc)
-        gauss_seidel!(x, b, 1.0, conn)
+        apply!(g, x, bc)
+        gauss_seidel!(g, x, b, 1.0, conn)
     end
 
     # We need extra space here to avoid clashing with the residuals
     # computed in fmg!
     r = ws.res1[level + 1]
     
-    apply!(x, bc)
-    residual!(r, x, b, conn)
+    apply!(g, x, bc)
+    residual!(g, r, x, b, conn)
     
     rh = ws.res[level + 2]
     
-    apply!(r, bc)
-    restrict!(rh, r)
+    apply!(g, r, bc)
+    restrict!(g, rh, r)
 
     xh = ws.sol[level + 2]
     parent(xh) .= 0
     
     mgv!(conf, xh, rh, level + 1, ws)
-    interpolate!(x, xh, Val{true})
+    interpolate!(g, x, xh, Val{true})
 
     for i in 1:smooth2
-        apply!(x, bc)
-        gauss_seidel!(x, b, 1.0, conn)
+        apply!(g, x, bc)
+        gauss_seidel!(g, x, b, 1.0, conn)
     end
 
     x
@@ -353,15 +353,15 @@ end
 
 function fmg!(conf::MGConfig, x, b, ws)
     @assert size(x) == size(b)
-    @unpack bc, conn, levels, tolerance, s = conf
+    @unpack bc, conn, levels, tolerance, s, g = conf
 
-    apply!(x, bc)
+    apply!(g, x, bc)
 
     # Note that s appears only here; in the rest of the code we assume s=1.
-    residual!(ws.res[1], x, b, s, conn)
+    residual!(g, ws.res[1], x, b, s, conn)
 
     # See above for the use of parent in the norm
-    eps = norm(parent(ws.res[1])) / sqrt(prod(innersize(x)))
+    eps = norm(ws.res[1]) / sqrt(prod(innersize(g, x)))
     @show eps
     
     #@show eps
@@ -371,23 +371,17 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     
     for k in 1:levels
-        restrict!(ws.res[k + 1], ws.res[k])
+        restrict!(g, ws.res[k + 1], ws.res[k])
     end
 
     # Todo: change this to a proper solver
     z = ws.sol[levels + 1]
     bt = ws.res[levels + 1]
 
-    inr = inranges(bt)
-    p = parent(bt)
-    indp = ntuple(i->inr[i] .- bt.offsets[i], length(size(bt)))
+    copyto!(ws.btop, @view bt[inranges(g, bt)...])
 
-    @views copyto!(ws.btop, vec(p[indp...]))
-
-    inr = inranges(z)
-    p = parent(z)
-    indp = ntuple(i->inr[i] .- z.offsets[i], length(size(z)))
-    @views copyto!(p[indp...], reshape(ws.mat \ ws.btop, length.(indp)...))
+    inr = inranges(g, z)
+    copyto!(@view(z[inr...]), reshape(ws.mat \ ws.btop, length.(inr)...))
     
     # for i in 1:10
     #     apply!(z, bc)
@@ -397,18 +391,17 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     for k in 1:levels
         z1 = ws.sol[levels - k + 1]
-        parent(z1) .= 0
+        z1 .= 0
         
-        apply!(z, bc)
-        interpolate!(z1, z)
+        apply!(g, z, bc)
+        interpolate!(g, z1, z)
 
         mgv!(conf, z1, ws.res[levels - k + 1], levels - k, ws)
 
         z = z1
     end
-
-    parent(x) .+= parent(z)
-    apply!(x, bc)
+    x .+= z
+    apply!(g, x, bc)
 
     return true
 end
