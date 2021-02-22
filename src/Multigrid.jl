@@ -194,7 +194,7 @@ function restrict!(g, rh, r)
     st = cubestencil(r)
     
     Threads.@threads for irh in innerindices(g, rh)
-        ir = 2 * (irh - oneunit(irh)) + oneunit(irh)
+        ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
         s = zero(eltype(r))
 
         for j in st
@@ -214,7 +214,7 @@ function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
     weights = binterpweights(st)
     
     Threads.@threads for irh in innerindices(g, rh)
-        ir = 2 * (irh - oneunit(irh)) + oneunit(irh)
+        ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
         for s in st
             # We will compute the value of cell in F at this location
             indf = ir + s
@@ -238,7 +238,7 @@ end
 
 
 function buildmat(g, x, bc)
-    rngs = inranges(g, x)
+    rngs = map(r -> r .- g, inranges(g, x))
     G = CartesianIndex(ntuple(_->g, ndims(x)))
     
     cinds = innerindices(g, x) .- G
@@ -263,6 +263,7 @@ function buildmat(g, x, bc)
                     end
                 end
             end
+            
             if newind in cinds
                 mat[lin[ind], lin[newind]] += m
             end

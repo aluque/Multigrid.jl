@@ -54,11 +54,11 @@ dim(::FrontBnd) = 3
 dim(::BackBnd) = 3
 
 targetind(rng, ::BottomBnd) = (first(rng) - 1, first(rng))
-targetind(rng, ::TopBnd) = (last(rng) + 1, last(rng))
-targetind(rng, ::LeftBnd) = (first(rng) - 1, first(rng))
-targetind(rng, ::RightBnd) = (last(rng) + 1, last(rng))
-targetind(rng, ::FrontBnd) = (first(rng) - 1, first(rng))
-targetind(rng, ::BackBnd) = (last(rng) + 1, last(rng))
+targetind(rng, ::TopBnd)    = (last(rng)  + 1, last(rng))
+targetind(rng, ::LeftBnd)   = (first(rng) - 1, first(rng))
+targetind(rng, ::RightBnd)  = (last(rng)  + 1, last(rng))
+targetind(rng, ::FrontBnd)  = (first(rng) - 1, first(rng))
+targetind(rng, ::BackBnd)   = (last(rng)  + 1, last(rng))
                               
 @generated function ghost(g, a::AbstractArray{T, N}, b::AbstractBoundary) where {T, N}
     if N == 2
