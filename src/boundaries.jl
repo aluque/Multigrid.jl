@@ -15,29 +15,35 @@ ng(a, d) = 1 - first(axes(a)[d])
 gbegin(a, d) = 0
 gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
 
-ghost2(a, ::BottomBnd)  = @view a[gbegin(a, 1), :]
-ghost2(a, ::TopBnd)     = @view a[gend(a, 1), :]
-ghost2(a, ::LeftBnd)    = @view a[:, gbegin(a, 2)]
-ghost2(a, ::RightBnd)   = @view a[:, gend(a, 2)]
+@inline setbc2!(a, ::BottomBnd, c) = @views a[1, :]   .= coef(c) .* a[2, :]       .+ cons(c)
+@inline setbc2!(a, ::TopBnd, c)    = @views a[end, :] .= coef(c) .* a[end - 1, :] .+ cons(c)
+@inline setbc2!(a, ::LeftBnd, c)   = @views a[:, 1]   .= coef(c) .* a[:, 2]       .+ cons(c)
+@inline setbc2!(a, ::RightBnd, c)  = @views a[:, end] .= coef(c) .* a[:, end - 1] .+ cons(c)
 
-ghost3(a, ::BottomBnd)  = @view a[gbegin(a, 1), :, :]
-ghost3(a, ::TopBnd)     = @view a[gend(a, 1), :, :]
-ghost3(a, ::LeftBnd)    = @view a[:, gbegin(a, 2), :]
-ghost3(a, ::RightBnd)   = @view a[:, gend(a, 2), :]
-ghost3(a, ::FrontBnd)   = @view a[:, :, gbegin(a, 3)]
-ghost3(a, ::BackBnd)    = @view a[:, :, gend(a, 3)]
+    
+@inline ghost2(a, ::BottomBnd)  = @view a[gbegin(a, 1), :]
+@inline ghost2(a, ::TopBnd)     = @view a[gend(a, 1), :]
+@inline ghost2(a, ::LeftBnd)    = @view a[:, gbegin(a, 2)]
+@inline ghost2(a, ::RightBnd)   = @view a[:, gend(a, 2)]
 
-valid2(a, ::BottomBnd)  = @view a[1, :]
-valid2(a, ::TopBnd)     = @view a[end - ng(a, 1), :]
-valid2(a, ::LeftBnd)    = @view a[:, 1]
-valid2(a, ::RightBnd)   = @view a[:, end - ng(a, 2)]
+@inline ghost3(a, ::BottomBnd)  = @view a[gbegin(a, 1), :, :]
+@inline ghost3(a, ::TopBnd)     = @view a[gend(a, 1), :, :]
+@inline ghost3(a, ::LeftBnd)    = @view a[:, gbegin(a, 2), :]
+@inline ghost3(a, ::RightBnd)   = @view a[:, gend(a, 2), :]
+@inline ghost3(a, ::FrontBnd)   = @view a[:, :, gbegin(a, 3)]
+@inline ghost3(a, ::BackBnd)    = @view a[:, :, gend(a, 3)]
 
-valid3(a, ::BottomBnd)  = @view a[1, :, :]
-valid3(a, ::TopBnd)     = @view a[end - ng(a, 1), :, :]
-valid3(a, ::LeftBnd)    = @view a[:, 1, :]
-valid3(a, ::RightBnd)   = @view a[:, end - ng(a, 2), :]
-valid3(a, ::FrontBnd)   = @view a[:, :, 1]
-valid3(a, ::BackBnd)    = @view a[:, :, end - ng(a, 3)]
+@inline valid2(a, ::BottomBnd)  = @view a[1, :]
+@inline valid2(a, ::TopBnd)     = @view a[end - ng(a, 1), :]
+@inline valid2(a, ::LeftBnd)    = @view a[:, 1]
+@inline valid2(a, ::RightBnd)   = @view a[:, end - ng(a, 2)]
+
+@inline valid3(a, ::BottomBnd)  = @view a[1, :, :]
+@inline valid3(a, ::TopBnd)     = @view a[end - ng(a, 1), :, :]
+@inline valid3(a, ::LeftBnd)    = @view a[:, 1, :]
+@inline valid3(a, ::RightBnd)   = @view a[:, end - ng(a, 2), :]
+@inline valid3(a, ::FrontBnd)   = @view a[:, :, 1]
+@inline valid3(a, ::BackBnd)    = @view a[:, :, end - ng(a, 3)]
 
 
 dim(::BottomBnd) = 1
@@ -94,8 +100,18 @@ struct Neumann <: AbstractLinearCondition end
 @inline cons(c::Dirichlet) = 0
 @inline cons(c::Neumann) = 0
 
-@inline function setbc!(a, b::AbstractBoundary, c::AbstractLinearCondition)
-    ghost(a, b) .= coef(c) .* valid(a, b) .+ cons(c)
+@inline function setbc!(a::AbstractArray{T, N}, b::AbstractBoundary,
+                        c::AbstractLinearCondition) where {T, N}
+    # All these contortions are required for CUDA compatibility.
+    # CUDA.jl uses scalar indexes when we operate with views into OffsetArrays.
+    # This is avoided by transforming into a view of the underlying CuArray
+    l = ghost(a, b)
+    indl = ntuple(i->l.indices[i] .- a.offsets[i], Val(N))
+
+    v = valid(a, b)
+    indv = ntuple(i->v.indices[i] .- a.offsets[i], Val(N))
+    p = parent(a)
+    @views p[indl...] .= coef(c) .* p[indv...] .+ cons(c)
 end
 
 @generated function apply!(a, bc::T) where {T}

@@ -9,10 +9,6 @@ export LeftBnd, RightBnd, TopBnd, BottomBnd, FrontBnd, BackBnd
 export Dirichlet, Neumann
 export CartesianConnector, CylindricalConnector
 
-include("redblack.jl")
-include("boundaries.jl")
-
-    
 """ A connector is a type that allows us for example to implement
 cylindrical symmetry in a generic code without a performance overhead.
 
@@ -68,6 +64,10 @@ struct Workspace{T, TA <: AbstractArray{T}, M}
 end
 
 
+include("redblack.jl")
+include("boundaries.jl")
+include("cuda.jl")
+
 
 function (::CylindricalConnector{D})(c::CartesianIndex, d::CartesianIndex, x) where D
     x * (1.0 + d[D] / (2 * c[D] - 1))
@@ -82,15 +82,22 @@ end
 innerindices(a) = CartesianIndices(inranges(a))
 innersize(a) = length.(inranges(a))
 
+# Wrapper around the zeros function that works also for CUDA arrays
+function simzeros(a)
+    s = similar(a)
+    parent(s) .= 0
+    s
+end
+
 function simcoarser(a)
     s = innersize(a)
-    zeros(map(n->0:(n ÷ 2 + 1), s)...)    
+    zeros(eltype(a), map(n->0:(n ÷ 2 + 1), s)...)    
 end
 
 
 function simfiner(a)
     s = innersize(a)
-    zeros(map(n->0:(n * 2 + 1), s)...)    
+    zeros(eltype(a), map(n->0:(n * 2 + 1), s)...)    
 end
 
 
@@ -131,7 +138,7 @@ end
 end
 
 
-#@inline laplacian(u, ind, st) = laplacian(u, ind, st, CartesianConnector())
+# @inline laplacian(u, ind, st) = laplacian(u, ind, st, CartesianConnector())
 
     
 """
@@ -171,9 +178,13 @@ residual!(r, u, b, s) = residual!(r, u, b, s, CartesianConnector())
 
 
 function residualnorm(u, b, c::AbstractConnector)
-    r = zeros(axes(u))
+    r = simzeros(u)
     residual!(r, u, b, c)
-    norm(r)
+
+    # I changed this to parent(r) because norm(p) uses scalar operations
+    # in CUDA.jl when p is a CuArray-supported OffsetArray.
+    # One must be careful that the ghost cells have been set up or are zero.
+    norm(parent(r))
 end
 residualnorm(u, b) = residualnorm(u, b, CartesianConnector())
 
@@ -269,9 +280,9 @@ function allocate(conf, x)
     sol = typeof(x)[]
     res1 = typeof(x)[]
     
-    push!(res, zeros(axes(x)))
-    push!(sol, zeros(axes(x)))
-    push!(res1, zeros(axes(x)))
+    push!(res, simzeros(x))
+    push!(sol, simzeros(x))
+    push!(res1, simzeros(x))
 
     for i in 1:levels
         push!(res, simcoarser(last(res)))
@@ -326,7 +337,7 @@ function mgv!(conf::MGConfig, x, b, level, ws)
     restrict!(rh, r)
 
     xh = ws.sol[level + 2]
-    xh .= 0
+    parent(xh) .= 0
     
     mgv!(conf, xh, rh, level + 1, ws)
     interpolate!(x, xh, Val{true})
@@ -348,8 +359,11 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     # Note that s appears only here; in the rest of the code we assume s=1.
     residual!(ws.res[1], x, b, s, conn)
-    eps = norm(ws.res[1]) / sqrt(prod(innersize(x)))
 
+    # See above for the use of parent in the norm
+    eps = norm(parent(ws.res[1])) / sqrt(prod(innersize(x)))
+    @show eps
+    
     #@show eps
     if (s * tolerance > eps)
         return false        
@@ -364,10 +378,16 @@ function fmg!(conf::MGConfig, x, b, ws)
     z = ws.sol[levels + 1]
     bt = ws.res[levels + 1]
 
-    ws.btop .= bt[inranges(bt)...][:]
-    
-    z[inranges(z)...][:] .= ws.mat \ ws.btop
-    
+    inr = inranges(bt)
+    p = parent(bt)
+    indp = ntuple(i->inr[i] .- bt.offsets[i], length(size(bt)))
+
+    @views copyto!(ws.btop, vec(p[indp...]))
+
+    inr = inranges(z)
+    p = parent(z)
+    indp = ntuple(i->inr[i] .- z.offsets[i], length(size(z)))
+    @views copyto!(p[indp...], reshape(ws.mat \ ws.btop, length.(indp)...))
     
     # for i in 1:10
     #     apply!(z, bc)
@@ -377,7 +397,7 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     for k in 1:levels
         z1 = ws.sol[levels - k + 1]
-        z1 .= 0
+        parent(z1) .= 0
         
         apply!(z, bc)
         interpolate!(z1, z)
@@ -387,7 +407,7 @@ function fmg!(conf::MGConfig, x, b, ws)
         z = z1
     end
 
-    x .+= z
+    parent(x) .+= parent(z)
     apply!(x, bc)
 
     return true
