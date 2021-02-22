@@ -105,7 +105,7 @@ struct Neumann <: AbstractLinearCondition end
                         c::AbstractLinearCondition) where {T, N}
     l = ghost(g, a, b)
     v = valid(g, a, b)
-    @views l .= coef(c) .* v .+ cons(c)
+    l .= coef(c) .* v .+ cons(c)
 end
 
 @generated function apply!(g, a, bc::T) where {T}

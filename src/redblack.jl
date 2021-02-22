@@ -26,7 +26,7 @@ function redblack2(f, g, a::AbstractArray{T, N}, parity) where {T, N}
     rng = rbranges(g, a)
     
     Threads.@threads for j in rng[2]
-        p = xor(parity, iseven(j))
+        p = xor(parity, iseven(j - g))
         for i in rng[1]
             f(CartesianIndex((i + p, j)))
         end

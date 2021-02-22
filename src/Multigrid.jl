@@ -19,11 +19,14 @@ multiplication).
 abstract type AbstractConnector end
 
 struct CartesianConnector <: AbstractConnector end
-(::CartesianConnector)(::CartesianIndex, ::CartesianIndex, x) = x
+(::CartesianConnector)(g, ::CartesianIndex, ::CartesianIndex, x) = x
 
 # For performance we store the cylindrical dimension in a type parameters
 struct CylindricalConnector{D} <: AbstractConnector end
 
+function (::CylindricalConnector{D})(g, c::CartesianIndex, d::CartesianIndex, x) where D
+    x * (1.0 + d[D] / (2 * (c[D] - g) - 1))
+end
 
 @with_kw struct MGConfig{T, TBC<:Tuple, C<:AbstractConnector}
     " Boundary condition as a tuple of tuples (boundary, condition)."
@@ -70,11 +73,6 @@ end
 include("redblack.jl")
 include("boundaries.jl")
 include("cuda.jl")
-
-
-function (::CylindricalConnector{D})(c::CartesianIndex, d::CartesianIndex, x) where D
-    x * (1.0 + d[D] / (2 * c[D] - 1))
-end
 
 function inranges(g, a::AbstractArray{T, N}) where {T, N}
     ntuple(n -> (firstindex(a, n) + g):(lastindex(a, n) - g), Val(N))
@@ -128,10 +126,10 @@ function binterpweights(st)
 end
 
 
-@inline function laplacian(u, ind, st, c::AbstractConnector)
+@inline function laplacian(g, u, ind, st, c::AbstractConnector)
     @inbounds s = -length(st) * u[ind]
     for j in st
-        @inbounds s += c(ind, j, u[ind + j])
+        @inbounds s += c(g, ind, j, u[ind + j])
     end
     s
 end
@@ -150,7 +148,7 @@ function gauss_seidel!(g, u, b, ω, c::AbstractConnector)
 
     for parity in (false, true)
         redblack(g, u, parity) do ind
-            l = laplacian(u, ind, st, c)
+            l = laplacian(g, u, ind, st, c)
             @inbounds u[ind] += ω * (l + b[ind]) / length(st)
         end
     end
@@ -167,7 +165,7 @@ function residual!(g, r, u, b, s, c::AbstractConnector)
     
     #Threads.@threads
     for ind in innerindices(g, u)
-        l = laplacian(u, ind, st, c)
+        l = laplacian(g, u, ind, st, c)
         @inbounds r[ind] = s * b[ind] + l
     end
 end
@@ -227,6 +225,7 @@ function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
             for (w, sh) in zip(weights, st)
                 @inbounds s += w * rh[irh + CartesianIndex(Tuple(δ) .* Tuple(sh))]
             end
+
             if V
                 r[indf] += s
             else
@@ -269,7 +268,7 @@ function buildmat(g, x, bc)
             end
         end
     end
-    
+
     factorize(mat)
 end
 
@@ -313,6 +312,7 @@ function mgv!(conf::MGConfig, x, b, level, ws)
     st = lplstencil(x)
     
     if level == levels
+        #@warn "Extra smoothing"
         for i in 1:50
             apply!(g, x, bc)
             gauss_seidel!(g, x, b, 1.0, conn)
@@ -338,7 +338,7 @@ function mgv!(conf::MGConfig, x, b, level, ws)
     restrict!(g, rh, r)
 
     xh = ws.sol[level + 2]
-    parent(xh) .= 0
+    xh .= 0
     
     mgv!(conf, xh, rh, level + 1, ws)
     interpolate!(g, x, xh, Val{true})
@@ -358,10 +358,11 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     apply!(g, x, bc)
 
+    ws.res[1] .= 0
+    
     # Note that s appears only here; in the rest of the code we assume s=1.
     residual!(g, ws.res[1], x, b, s, conn)
 
-    # See above for the use of parent in the norm
     eps = norm(ws.res[1]) / sqrt(prod(innersize(g, x)))
     @show eps
     
@@ -369,7 +370,6 @@ function fmg!(conf::MGConfig, x, b, ws)
     if (s * tolerance > eps)
         return false        
     end
-
     
     for k in 1:levels
         restrict!(g, ws.res[k + 1], ws.res[k])
@@ -379,7 +379,7 @@ function fmg!(conf::MGConfig, x, b, ws)
     z = ws.sol[levels + 1]
     bt = ws.res[levels + 1]
 
-    copyto!(ws.btop, @view bt[inranges(g, bt)...])
+    copyto!(ws.btop, vec(@view bt[inranges(g, bt)...]))
 
     inr = inranges(g, z)
     copyto!(@view(z[inr...]), reshape(ws.mat \ ws.btop, length.(inr)...))
