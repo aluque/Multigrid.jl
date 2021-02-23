@@ -1,41 +1,30 @@
 using CUDA
 
 # Arrays supported in the device
-const CuSuppArray = Union{CuArray, OffsetArray{T, N, Q}  where {T, N, Q<:CuArray}}
 BLCK = (256, 1)
 
 
-function simcoarser(a::CuSuppArray)
-    s = innersize(a)
-    ndims = map(n->0:(n ÷ 2 + 1), s)
-    
-    p = CUDA.zeros(eltype(a), length.(ndims))
-    OffsetArray(p, ndims...)
+function simcoarser(g, a::CuArray{T, N}) where {T, N}
+    CUDA.zeros(eltype(a), ntuple(i->(size(a, i) - 2g) ÷ 2 + 2g, Val(N)))
 end
 
 
-function simfiner(a::CuSuppArray)
-    s = innersize(a)
-    ndims = map(n->0:(n * 2 + 1), s)
-
-    p = CUDA.zeros(eltype(a), length.(ndims))
-    OffsetArray(p, ndims...)    
+function simfiner(g, a::CuArray{T, N}) where {T, N}
+    CUDA.zeros(eltype(a), ntuple(i->(size(a, i) - 2g) * 2 + 2g, Val(N)))
 end
 
 
-function inends(a::AbstractArray{T, N}) where {T, N}
-    l = lastindex.(axes(a))
-    t = ntuple(n -> (l[n] - 1), Val(N))
-
-    t
+function inends(g, a::AbstractArray{T, N}) where {T, N}
+    ntuple(i -> lastindex(a, i) - firstindex(a, i) + 1 - 2g, Val(N))
 end
 
-function rbends(a::AbstractArray{T, N}) where {T, N}
-    l = lastindex.(axes(a))
-    t = ntuple(n -> (l[n + 1] - 1), Val(N - 1))
+function rbends(g, a::AbstractArray{T, N}) where {T, N}
+    t = ntuple(i -> lastindex(a, i + 1) - firstindex(a, i + 1) + 1 - 2g, Val(N - 1))
 
-    @assert iseven(l[1] - 1)
-    h = div(l[1] - 1, 2)
+    l1 = lastindex(a, 1) - firstindex(a, 1) + 1 - 2g
+    @assert iseven(l1)
+
+    h = div(l1, 2)
 
     (h, t...)
 end
@@ -46,133 +35,142 @@ function blocks(n, bsize)
 end
 
 
-function blocks(a::AbstractArray, bsizes)
-    blocks.(size(a), bsizes)
+function blocks(g, a::AbstractArray, bsizes)
+    blocks.(size(a) .- 2g, bsizes)
 end
 
 
 # ONLY 2D
-@inline function cudaindex()
-    i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    j = (blockIdx().y - 1) * blockDim().y + threadIdx().y
+@inline function cudaindex(g)
+    i = g + (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    j = g + (blockIdx().y - 1) * blockDim().y + threadIdx().y
 
     CartesianIndex(i, j)
 end
 
-# ONLY 2D
-@inline function cudainside(a, ind)
-    (ind[1] <= lastindex(a, 1) - 1 && ind[2] <= lastindex(a, 2) - 1)
+@inline function cudainside(g, a::AbstractArray{T, N}, ind) where {T, N}
+    all(ntuple(i->((firstindex(a, i) + g) <= ind[i] <= (lastindex(a, i) - g)),
+               Val(N)))
 end
 
+# @inline function cudainside(g, a, ind)
+#     true
+#     # all(ntuple(i->((firstindex(a, i) + g) <= ind[i] &&
+#     #                ind[i] <= (lastindex(a, i) - g)),
+#     #            Val(N)))
+# end
 
-function redblack2(f, a::CuSuppArray, parity) where {T, N, Q<:CuArray}
-    rng = rbends(a)
+
+function redblack2(f, g, a::CuArray, parity)
+    function kern()
+        i = g + 2 * ((blockIdx().x - 1) * blockDim().x + threadIdx().x - 1) + 1
+        j = g + (blockIdx().y - 1) * blockDim().y + threadIdx().y
+        
+        p = xor(parity, iseven(j - g))
+        ind = CartesianIndex(i + p, j)
+        cudainside(g, a, ind) || return nothing
+        
+        f(ind)
+    
+        nothing
+    end
 
     @cuda(threads=BLCK,
-          blocks=blocks.(rbends(a), BLCK),
-          kern_redblack2(f, a, parity))
+          blocks=blocks.(rbends(g, a), BLCK),
+          kern())
 
     nothing
 end
 
-function kern_redblack2(f, a, parity)
-    i = 2 * ((blockIdx().x - 1) * blockDim().x + threadIdx().x - 1) + 1
-    j = (blockIdx().y - 1) * blockDim().y + threadIdx().y
-    
-    p = xor(parity, iseven(j))
-    
-    (i + p > lastindex(a, 1) - 1 || j > lastindex(a, 2) - 1) && return nothing
-    
-    f(CartesianIndex((i + p, j)))
-    
-    nothing
-end
 
 
-function residual!(r::CuSuppArray, u::CuSuppArray, b::CuSuppArray, s, c::AbstractConnector)
+function residual!(g, r::CuArray, u::CuArray, b::CuArray, s, c::AbstractConnector)
     st = lplstencil(u)
+    
+    function kern()
+        ind = cudaindex(g)
+        cudainside(g, r, ind) || return nothing
+        
+        l = laplacian(g, u, ind, st, c)
+        @inbounds r[ind] = s * b[ind] + l
+        
+        nothing
+    end
 
     @cuda(threads=BLCK,
-          blocks=blocks.(inends(r), BLCK),
-          kern_residual!(r, u, b, s, c, st))
+          blocks=blocks.(inends(g, r), BLCK),
+          kern())
 
     nothing
 end
 
-function kern_residual!(r, u, b, s, c, st)
-    ind = cudaindex()
-    cudainside(r, ind) || return nothing
-    
-    l = laplacian(u, ind, st, c)
-    r[ind] = s * b[ind] + l
-    
-    nothing
-end
 
-
-function restrict!(rh::CuSuppArray, r::CuSuppArray)
+function restrict!(g, rh::CuArray, r::CuArray)
     st = cubestencil(r)
     
-    @cuda(threads=BLCK,
-          blocks=blocks.(inends(rh), BLCK),
-          kern_restrict!(rh, r, st))
-
-    nothing
-end
-
-
-function kern_restrict!(rh, r, st)
-    irh = cudaindex()
-    cudainside(rh, irh) || return nothing
+    function kern()
+        irh = cudaindex(g)
+        cudainside(g, rh, irh) || return nothing
+        
+        ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
+        s = zero(eltype(r))
     
-    ir = 2 * (irh - oneunit(irh)) + oneunit(irh)
-    s = zero(eltype(r))
+        for j in st
+            @inbounds s += r[ir + j]
+        end
+        
+        @inbounds rh[irh] = 4 * s / length(st)
     
-    for j in st
-        @inbounds s += r[ir + j]
+        nothing
     end
-    
-    @inbounds rh[irh] = 4 * s / length(st)
-    
+
+    @cuda(threads=BLCK,
+          blocks=blocks.(inends(g, rh), BLCK),
+          kern())
+
     nothing
 end
 
 
-function interpolate!(r::CuSuppArray, rh::CuSuppArray, update::Type{Val{V}}=Val{false}) where {V}
+
+
+function interpolate!(g, r::CuArray, rh::CuArray, update::Type{Val{V}}=Val{false}) where {V}
     st = cubestencil(r)
     weights = binterpweights(st)
         
-    @cuda(threads=BLCK,
-          blocks=blocks.(inends(rh), BLCK),
-          kern_interpolate!(r, rh, update, st, weights))
-
-    nothing
-end
-
-
-function kern_interpolate!(r, rh, update::Type{Val{V}}, st, weights) where {V}
-    irh = cudaindex()
-    cudainside(rh, irh) || return nothing
-    
-    ir = 2 * (irh - oneunit(irh)) + oneunit(irh)
-    for s in st
-        # We will compute the value of cell in F at this location
-        indf = ir + s
+    function kern()
+        irh = cudaindex(g)
+        cudainside(g, rh, irh) || return nothing
         
-        # Delta to the furthest cell in H that plays into the interpolation
-        δ = 2 * s - oneunit(irh)
+        ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
+        for s in st
+            # We will compute the value of cell in F at this location
+            indf = ir + s
+            
+            # Delta to the furthest cell in H that plays into the interpolation
+            δ = 2 * s - oneunit(irh)
+            
+            # Now we run over cells in H to compute the interpolation
+            s = zero(eltype(r))
+            for (w, sh) in zip(weights, st)
+                @inbounds s += w * rh[irh + CartesianIndex(Tuple(δ) .* Tuple(sh))]
+            end
+            if V
+                @inbounds r[indf] += s
+            else
+                @inbounds r[indf] = s
+            end
+        end
         
-        # Now we run over cells in H to compute the interpolation
-        s = zero(eltype(r))
-        for (w, sh) in zip(weights, st)
-            @inbounds s += w * rh[irh + CartesianIndex(Tuple(δ) .* Tuple(sh))]
-        end
-        if V
-            r[indf] += s
-        else
-            r[indf] = s
-        end
+        nothing
     end
-    
+
+
+    @cuda(threads=BLCK,
+          blocks=blocks.(inends(g, rh), BLCK),
+          kern())
+
     nothing
 end
+
+

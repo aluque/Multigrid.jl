@@ -84,7 +84,7 @@ innersize(g, a) = length.(inranges(g, a))
 # Wrapper around the zeros function that works also for CUDA arrays
 function simzeros(g, a)
     s = similar(a)
-    s .= 0
+    fill!(s, 0)
     s
 end
 
@@ -272,7 +272,11 @@ function buildmat(g, x, bc)
     factorize(mat)
 end
 
-
+"""
+Allocate space for the grid hierarchy needed to solve Poisson's equation in grid
+`x` (but note that the contents of `x` do not need to be filled yet).
+Return a Workspace with the neccesary allocations.
+"""
 function allocate(conf, x)
     @unpack levels, bc, g = conf
     
@@ -311,8 +315,7 @@ function mgv!(conf::MGConfig, x, b, level, ws)
     
     st = lplstencil(x)
     
-    if level == levels
-        #@warn "Extra smoothing"
+    if level == levels 
         for i in 1:50
             apply!(g, x, bc)
             gauss_seidel!(g, x, b, 1.0, conn)
@@ -364,8 +367,7 @@ function fmg!(conf::MGConfig, x, b, ws)
     residual!(g, ws.res[1], x, b, s, conn)
 
     eps = norm(ws.res[1]) / sqrt(prod(innersize(g, x)))
-    @show eps
-    
+
     #@show eps
     if (s * tolerance > eps)
         return false        
@@ -375,7 +377,6 @@ function fmg!(conf::MGConfig, x, b, ws)
         restrict!(g, ws.res[k + 1], ws.res[k])
     end
 
-    # Todo: change this to a proper solver
     z = ws.sol[levels + 1]
     bt = ws.res[levels + 1]
 
@@ -401,6 +402,7 @@ function fmg!(conf::MGConfig, x, b, ws)
 
         z = z1
     end
+
     x .+= z
     apply!(g, x, bc)
 

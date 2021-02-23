@@ -105,6 +105,7 @@ struct Neumann <: AbstractLinearCondition end
                         c::AbstractLinearCondition) where {T, N}
     l = ghost(g, a, b)
     v = valid(g, a, b)
+
     l .= coef(c) .* v .+ cons(c)
 end
 
