@@ -52,6 +52,12 @@ end
 
     " Number of ghost cells in each boundary (must be at least 1)."
     g::Int = 1
+
+    " Maximum number of iterations."
+    maxiter::Int = 50
+    
+    " Verbosity level"
+    verbosity::Int = 0
 end
 
 
@@ -357,7 +363,7 @@ end
 
 function fmg!(conf::MGConfig, x, b, ws)
     @assert size(x) == size(b)
-    @unpack bc, conn, levels, tolerance, s, g = conf
+    @unpack bc, conn, levels, tolerance, s, g, verbosity = conf
 
     apply!(g, x, bc)
 
@@ -368,8 +374,10 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     eps = norm(ws.res[1]) / sqrt(prod(innersize(g, x)))
 
-    #@show eps
+    verbosity < 1 || @info "Residual norm: $(eps)"
+        
     if (s * tolerance > eps)
+        verbosity < 1 || @info "Convergence achieved"
         return false        
     end
     
@@ -418,10 +426,17 @@ end
 """
 function solve(conf::MGConfig, x, b, ws)
     cont = true
-    while cont
+    local iter = 0
+    while cont && iter <= conf.maxiter
         cont = fmg!(conf, x, b, ws)
+        iter += 1
     end
 
+    if iter > conf.maxiter
+        @warn "Convergence failed with [maxiter=] $(conf.maxiter) iterations"
+    end
+    
+    end
     x
 end
 
