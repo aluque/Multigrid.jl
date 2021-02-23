@@ -419,10 +419,16 @@ end
 
 
 """
-   Solve the Poisson equation Lx + s b = 0 where L is the discrete Laplace
-   operator with grid size h=1.  You can change the grid size by 
-   using s=h^2.  If you want to compute the electrostatic potential 
-   solving ∇²ϕ = -q/ϵ0, use s = h^2 / ϵ0. 
+    Solve the Poisson equation Lx + s b = 0 where L is the discrete Laplace
+    operator with grid size h=1.  You can change the grid size by 
+    using s=h^2.  If you want to compute the electrostatic potential 
+    solving ∇²ϕ = -q/ϵ0, use s = h^2 / ϵ0. 
+
+    `x` and `b` are arrays that must contain enough space for `conf.g ≥ 1` ghost 
+    cells.  For example to solve the Poisson equation in a MxN grid you can set
+    `g = 1` and allocate arrays (M + 2) x (N + 2).  If you prefer t you can use
+     OffsetArrays indexed as (0:M+1, 0:N+1) but then you should call
+     `Multigrid.allocate` and `Multigrid.solve` with parent(x), parent(b).
 """
 function solve(conf::MGConfig, x, b, ws)
     cont = true
