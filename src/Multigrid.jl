@@ -1,3 +1,12 @@
+"""
+Multigrid code for the solution of Poisson's equation.
+
+This code is valid both for 2d and 3d and for (multi-threaded) CPU or GPU
+execution.
+
+(c) Alejandro Luque, IAA-CSIC (2021)
+"""
+
 module Multigrid
 using OffsetArrays
 using LinearAlgebra
