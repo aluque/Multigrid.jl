@@ -1,7 +1,8 @@
+## CUDA methods.
+
 using CUDA
 
-# Arrays supported in the device
-BLCK = (256, 1)
+const BLCK = (256, 1)
 
 
 function simcoarser(g, a::CuArray{T, N}) where {T, N}
@@ -11,22 +12,6 @@ end
 
 function simfiner(g, a::CuArray{T, N}) where {T, N}
     CUDA.zeros(eltype(a), ntuple(i->(size(a, i) - 2g) * 2 + 2g, Val(N)))
-end
-
-
-function inends(g, a::AbstractArray{T, N}) where {T, N}
-    ntuple(i -> lastindex(a, i) - firstindex(a, i) + 1 - 2g, Val(N))
-end
-
-function rbends(g, a::AbstractArray{T, N}) where {T, N}
-    t = ntuple(i -> lastindex(a, i + 1) - firstindex(a, i + 1) + 1 - 2g, Val(N - 1))
-
-    l1 = lastindex(a, 1) - firstindex(a, 1) + 1 - 2g
-    @assert iseven(l1)
-
-    h = div(l1, 2)
-
-    (h, t...)
 end
 
 
@@ -40,25 +25,39 @@ function blocks(g, a::AbstractArray, bsizes)
 end
 
 
-# ONLY 2D
-@inline function cudaindex(g)
-    i = g + (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    j = g + (blockIdx().y - 1) * blockDim().y + threadIdx().y
-
-    CartesianIndex(i, j)
+"""
+   Obtain a CartesianIndex from the thread and block coordinates.  Needs an
+   array `a` which is used only to specialize on dimension
+"""
+@inline @generated function cudaindex(g, a::AbstractArray{T, N}) where {T, N}
+    if N == 2
+        expr = quote
+            i = g + (blockIdx().x - 1) * blockDim().x + threadIdx().x
+            j = g + (blockIdx().y - 1) * blockDim().y + threadIdx().y
+            
+            return CartesianIndex(i, j)
+        end
+    elseif N == 3
+        expr = quote
+            i = g + (blockIdx().x - 1) * blockDim().x + threadIdx().x
+            j = g + (blockIdx().y - 1) * blockDim().y + threadIdx().y
+            k = g + (blockIdx().z - 1) * blockDim().z + threadIdx().z
+            return CartesianIndex(i, j, k)
+        end
+    else
+        throw(ArgumentError("Only arrays with 2, 3 dimensions allowed"))
+    end
+    expr       
 end
 
+"""
+    Check that the given index is inside the valid part of the array with
+    `g` ghost cells on each side
+"""
 @inline function cudainside(g, a::AbstractArray{T, N}, ind) where {T, N}
     all(ntuple(i->((firstindex(a, i) + g) <= ind[i] <= (lastindex(a, i) - g)),
                Val(N)))
 end
-
-# @inline function cudainside(g, a, ind)
-#     true
-#     # all(ntuple(i->((firstindex(a, i) + g) <= ind[i] &&
-#     #                ind[i] <= (lastindex(a, i) - g)),
-#     #            Val(N)))
-# end
 
 
 function redblack2(f, g, a::CuArray, parity)
@@ -88,7 +87,7 @@ function residual!(g, r::CuArray, u::CuArray, b::CuArray, s, c::AbstractConnecto
     st = lplstencil(u)
     
     function kern()
-        ind = cudaindex(g)
+        ind = cudaindex(g, r)
         cudainside(g, r, ind) || return nothing
         
         l = laplacian(g, u, ind, st, c)
@@ -109,7 +108,7 @@ function restrict!(g, rh::CuArray, r::CuArray)
     st = cubestencil(r)
     
     function kern()
-        irh = cudaindex(g)
+        irh = cudaindex(g, rh)
         cudainside(g, rh, irh) || return nothing
         
         ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
@@ -132,14 +131,12 @@ function restrict!(g, rh::CuArray, r::CuArray)
 end
 
 
-
-
 function interpolate!(g, r::CuArray, rh::CuArray, update::Type{Val{V}}=Val{false}) where {V}
     st = cubestencil(r)
     weights = binterpweights(st)
         
     function kern()
-        irh = cudaindex(g)
+        irh = cudaindex(g, r)
         cudainside(g, rh, irh) || return nothing
         
         ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)

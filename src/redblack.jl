@@ -6,6 +6,19 @@ function rbranges(g, a::AbstractArray{T, N}) where {T, N}
 end
 
 
+function rbends(g, a::AbstractArray{T, N}) where {T, N}
+    t = ntuple(i -> lastindex(a, i + 1) - firstindex(a, i + 1) + 1 - 2g, Val(N - 1))
+
+    l1 = lastindex(a, 1) - firstindex(a, 1) + 1 - 2g
+    @assert iseven(l1)
+
+    h = div(l1, 2)
+
+    (h, t...)
+end
+
+
+
 @generated function redblack(f, g, a::AbstractArray{T, N}, parity) where {T, N}
     if N == 2
         expr = quote

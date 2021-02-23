@@ -84,6 +84,10 @@ function inranges(g, a::AbstractArray{T, N}) where {T, N}
     ntuple(n -> (firstindex(a, n) + g):(lastindex(a, n) - g), Val(N))
 end
 
+function inends(g, a::AbstractArray{T, N}) where {T, N}
+    ntuple(i -> lastindex(a, i) - firstindex(a, i) + 1 - 2g, Val(N))
+end
+
 innerindices(g, a) = CartesianIndices(inranges(g, a))
 innersize(g, a) = length.(inranges(g, a))
 
