@@ -455,7 +455,6 @@ function solve(conf::MGConfig, x, b, ws)
         @warn "Convergence failed with [maxiter=] $(conf.maxiter) iterations"
     end
     
-    end
     x
 end
 
