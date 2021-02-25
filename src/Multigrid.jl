@@ -67,6 +67,9 @@ end
     
     " Verbosity level"
     verbosity::Int = 0
+
+    " Error if not converging. "
+    convergenceerror::Bool = true
 end
 
 
@@ -452,7 +455,11 @@ function solve(conf::MGConfig, x, b, ws)
     end
 
     if iter > conf.maxiter
-        @warn "Convergence failed with [maxiter=] $(conf.maxiter) iterations"
+        if conf.convergenceerror
+            @error "Convergence failed with [maxiter=] $(conf.maxiter) iterations"
+        else
+            @warn "Convergence failed with [maxiter=] $(conf.maxiter) iterations"
+        end
     end
     
     x
