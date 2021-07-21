@@ -390,10 +390,10 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     eps = norm(ws.res[1]) / sqrt(prod(innersize(g, x)))
 
-    verbosity < 1 || @info "Residual norm: $(eps)"
+    verbosity < 2 || @info "Residual norm: $(eps)"
         
     if (s * tolerance > eps)
-        verbosity < 1 || @info "Convergence achieved"
+        verbosity < 2 || @info "Convergence achieved"
         return false        
     end
     
@@ -453,6 +453,7 @@ function solve(conf::MGConfig, x, b, ws)
         cont = fmg!(conf, x, b, ws)
         iter += 1
     end
+    conf.verbosity < 1 || @info "$iter iterations"
 
     if iter > conf.maxiter
         if conf.convergenceerror
