@@ -148,7 +148,6 @@ function setinhom!(conf::MGConfig,
     z = zero(CartesianIndex{N})
     I = Base.setindex(z, v.indices[dim(bnd)], dim(bnd))
     D = Base.setindex(z, dirind(bnd), dim(bnd))
-    @show conn(g, I, D, 2 / s)
     
     v .+= conn(g, I, D, 2 / s) .* val
 end
