@@ -185,8 +185,7 @@ gauss_seidel!(g, u, b, ω) = gauss_seidel!(g, u, b, ω, CartesianConnector())
 function residual!(g, r, u, b, s, c::AbstractConnector)
     st = lplstencil(u)
     
-    #Threads.@threads
-    for ind in innerindices(g, u)
+    Threads.@threads for ind in innerindices(g, u)
         l = laplacian(g, u, ind, st, c)
         @inbounds r[ind] = s * b[ind] + l
     end
