@@ -8,6 +8,7 @@ execution.
 """
 
 module Multigrid
+using Polyester
 using OffsetArrays
 using LinearAlgebra
 using SparseArrays
@@ -185,7 +186,7 @@ gauss_seidel!(g, u, b, ω) = gauss_seidel!(g, u, b, ω, CartesianConnector())
 function residual!(g, r, u, b, s, c::AbstractConnector)
     st = lplstencil(u)
     
-    Threads.@threads for ind in innerindices(g, u)
+    @batch for ind in innerindices(g, u)
         l = laplacian(g, u, ind, st, c)
         @inbounds r[ind] = s * b[ind] + l
     end
@@ -212,7 +213,7 @@ residualnorm(g, u, b) = residualnorm(g, u, b, CartesianConnector())
 function restrict!(g, rh, r)
     st = cubestencil(r)
     
-    Threads.@threads for irh in innerindices(g, rh)
+    @batch for irh in innerindices(g, rh)
         ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
         s = zero(eltype(r))
 
@@ -232,7 +233,7 @@ function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
     st = cubestencil(r)
     weights = binterpweights(st)
     
-    Threads.@threads for irh in innerindices(g, rh)
+    @batch for irh in innerindices(g, rh)
         ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
         for s in st
             # We will compute the value of cell in F at this location

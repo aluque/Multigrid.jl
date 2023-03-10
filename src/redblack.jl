@@ -37,8 +37,7 @@ end
 
 function redblack2(f, g, a::AbstractArray{T, N}, parity) where {T, N}
     rng = rbranges(g, a)
-    
-    Threads.@threads for j in rng[2]
+    @batch for j in rng[2]
         p = xor(parity, iseven(j - g))
         for i in rng[1]
             f(CartesianIndex((i + p, j)))
@@ -50,7 +49,7 @@ end
 function redblack3(f, g, a::AbstractArray{T, N}, parity) where {T, N}
     rng = rbranges(g, a)
             
-    Threads.@threads for k in rng[3]   
+    @batch for k in rng[3]   
         pk = xor(parity, iseven(k))
         for j in rng[2]
             pj = xor(pk, iseven(j))
