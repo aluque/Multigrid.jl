@@ -316,8 +316,8 @@ function allocate(conf, x)
         push!(sol, simcoarser(g, last(sol)))
     end
 
-    btop = vec(zeros(innersize(g, sol[end])...))
-    utop = vec(zeros(innersize(g, sol[end])...))
+    btop = vec(zeros(eltype(x), innersize(g, sol[end])...))
+    utop = vec(zeros(eltype(x), innersize(g, sol[end])...))
     
     mat = buildmat(g, sol[end], bc)
     Workspace(res, res1, sol, btop, utop, mat)
