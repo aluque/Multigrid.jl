@@ -6,13 +6,13 @@ execution.
 
 (c) Alejandro Luque, IAA-CSIC (2021)
 """
-
 module Multigrid
-using Polyester
 using OffsetArrays
 using LinearAlgebra
 using SparseArrays
 using Parameters
+import KernelAbstractions as KA
+using KernelAbstractions: @index, @kernel, get_backend
 
 export MGConfig
 export LeftBnd, RightBnd, TopBnd, BottomBnd, FrontBnd, BackBnd
@@ -34,8 +34,15 @@ struct CartesianConnector <: AbstractConnector end
 # For performance we store the cylindrical dimension in a type parameters
 struct CylindricalConnector{D} <: AbstractConnector end
 
-function (::CylindricalConnector{D})(g, c::CartesianIndex, d::CartesianIndex, x) where D
-    x * (1.0 + d[D] / (2 * (c[D] - g) - 1))
+function (::CylindricalConnector{D})(g, c::CartesianIndex, d::CartesianIndex, x::T)::T where {D, T}
+    # This should work but the Metal backend was producing 0.0
+    #x * (1 + d[D] // (2 * (c[D] - g) - 1))
+
+    # So rewriting explicitly the fractional sum
+    num = d[D]
+    denom = (2 * (c[D] - g) - 1)
+    
+    x * (num + denom) / denom
 end
 
 @with_kw struct MGConfig{T, TBC<:Tuple, C<:AbstractConnector}
@@ -91,7 +98,8 @@ end
 
 include("redblack.jl")
 include("boundaries.jl")
-include("cuda.jl")
+#include("cuda.jl")
+include("kernels.jl")
 
 function inranges(g, a::AbstractArray{T, N}) where {T, N}
     ntuple(n -> (firstindex(a, n) + g):(lastindex(a, n) - g), Val(N))
@@ -145,7 +153,7 @@ end
 
 
 function binterpweights(st)
-    map(s -> prod(map(si -> 3 - 2si, Tuple(s))) / 4^length(s), st)
+    map(s -> prod(map(si -> 3 - 2si, Tuple(s))) // 4^length(s), st)
 end
 
 
@@ -179,20 +187,8 @@ end
 gauss_seidel!(g, u, b, ω) = gauss_seidel!(g, u, b, ω, CartesianConnector())
 
 
-"""
-   Computes the residual of Laplace operator acting on u with rhs -b.
-   The function computes Lu + s b where L is the discrete laplace operator.
-"""
-function residual!(g, r, u, b, s, c::AbstractConnector)
-    st = lplstencil(u)
-    
-    @batch for ind in innerindices(g, u)
-        l = laplacian(g, u, ind, st, c)
-        @inbounds r[ind] = s * b[ind] + l
-    end
-end
 
-residual!(g, r, u, b, c::AbstractConnector) = residual!(g, r, u, b, 1.0, c)
+residual!(g, r, u, b, c::AbstractConnector) = residual!(g, r, u, b, 1, c)
 residual!(g, r, u, b, s::Real) = residual!(g, r, u, b, s, CartesianConnector())
 
 
@@ -205,57 +201,6 @@ end
 
 residualnorm(g, u, b) = residualnorm(g, u, b, CartesianConnector())
 
-
-
-"""
-    Restrict coarse grid `rh` into `r`.
-"""
-function restrict!(g, rh, r)
-    st = cubestencil(r)
-    
-    @batch for irh in innerindices(g, rh)
-        ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
-        s = zero(eltype(r))
-
-        for j in st
-            @inbounds s += r[ir + j]
-        end
-
-        @inbounds rh[irh] = 4 * s / length(st)
-    end
-end
-
-
-"""
-    Interpolate form `rh` into `r`, adding it to the value already stored there.
-"""
-function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
-    st = cubestencil(r)
-    weights = binterpweights(st)
-    
-    @batch for irh in innerindices(g, rh)
-        ir = 2 * (irh - (g + 1) * oneunit(irh)) + (g + 1) * oneunit(irh)
-        for s in st
-            # We will compute the value of cell in F at this location
-            indf = ir + s
-
-            # Delta to the furthest cell in H that plays into the interpolation
-            δ = 2 * s - oneunit(irh)
-
-            # Now we run over cells in H to compute the interpolation
-            s = zero(eltype(r))
-            for (w, sh) in zip(weights, st)
-                @inbounds s += w * rh[irh + CartesianIndex(Tuple(δ) .* Tuple(sh))]
-            end
-
-            if V
-                r[indf] += s
-            else
-                r[indf] = s
-            end
-        end
-    end
-end
 
 
 function buildmat(g, x, bc)
@@ -340,14 +285,14 @@ function mgv!(conf::MGConfig, x, b, level, ws)
     if level == levels 
         for i in 1:50
             apply!(g, x, bc)
-            gauss_seidel!(g, x, b, 1.0, conn)
+            gauss_seidel!(g, x, b, 1, conn)
         end
         return x
     end
 
     for i in 1:smooth1
         apply!(g, x, bc)
-        gauss_seidel!(g, x, b, 1.0, conn)
+        gauss_seidel!(g, x, b, 1, conn)
     end
 
     # We need extra space here to avoid clashing with the residuals
@@ -370,7 +315,7 @@ function mgv!(conf::MGConfig, x, b, level, ws)
 
     for i in 1:smooth2
         apply!(g, x, bc)
-        gauss_seidel!(g, x, b, 1.0, conn)
+        gauss_seidel!(g, x, b, 1, conn)
     end
 
     x
