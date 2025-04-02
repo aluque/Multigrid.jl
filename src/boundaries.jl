@@ -114,6 +114,8 @@ struct Neumann <: AbstractLinearCondition end
     v = valid(g, a, b)
 
     l .= coef(c) .* v .+ cons(c)
+
+    KA.synchronize(get_backend(a))
 end
 
 @generated function apply!(g, a, bc::T) where {T}
@@ -150,6 +152,8 @@ function setinhom!(conf::MGConfig,
     D = Base.setindex(z, dirind(bnd), dim(bnd))
     
     v .+= conn(g, I, D, 2 / s) .* val
+
+    KA.synchronize(get_backend(b))
 end
     
 @inline function matcoef(rngs, ind, b::AbstractBoundary,

@@ -58,7 +58,9 @@ function redblack2(f, g, a, parity)
         nothing
     end
 
-    kern(get_backend(a))(a;ndrange=rbends(g, a))
+    backend = get_backend(a)
+    kern(backend)(a; ndrange=rbends(g, a))
+    KA.synchronize(backend)
 
     nothing
 end
@@ -89,20 +91,23 @@ end
 
 
 
+function residual!(g, r, u, b, s, c::AbstractConnector)
     st = lplstencil(u)
 
-    @kernel function kern(r, u, b)
+    @kernel function kern(r, @Const(u), @Const(b))
         ind = @index(Global, Cartesian)
         ind += oneunit(ind) * g
         
-        l = laplacian(g, u, ind, st, c)
-        @inbounds r[ind] = s * b[ind] + l
+        @inline l = laplacian(g, u, ind, st, c)
+        @inbounds r[ind] = s * b[ind] #+ l
         
         nothing
     end
 
-    kern(get_backend(r))(r, u, b; ndrange=inends(g, r))
-
+    backend = get_backend(r)
+    kernres2(backend)(r, u, b; ndrange=inends(g, r))
+    KA.synchronize(backend)
+    
     nothing
 end
 
@@ -110,7 +115,7 @@ end
 function restrict!(g, rh, r)
     st = cubestencil(r)
     
-    @kernel function kern(rh, r)
+    @kernel function kern(rh, @Const(r))
         irh = @index(Global, Cartesian)  
         irh += oneunit(irh) * g
         
@@ -125,9 +130,10 @@ function restrict!(g, rh, r)
     
         nothing
     end
-
-    kern(get_backend(r))(rh, r; ndrange=inends(g, rh))
-
+    backend = get_backend(r)
+    kern(backend)(rh, r; ndrange=inends(g, rh))
+    KA.synchronize(backend)
+    
     nothing
 end
 
@@ -135,7 +141,7 @@ end
 function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
     st = cubestencil(r)
     weights = binterpweights(st)
-    @kernel function kern(r, rh)
+    @kernel function kern(r, @Const(rh))
         irh = @index(Global, Cartesian)  
         irh += oneunit(irh) * g
 
@@ -162,8 +168,9 @@ function interpolate!(g, r, rh, update::Type{Val{V}}=Val{false}) where {V}
         nothing
     end
 
-
-    kern(get_backend(r))(r, rh; ndrange=inends(g, rh))
+    backend = get_backend(r)
+    kern(backend)(r, rh; ndrange=inends(g, rh))
+    KA.synchronize(backend)
 
     nothing
 end
