@@ -105,7 +105,7 @@ function residual!(g, r, u, b, s, c::AbstractConnector)
     end
 
     backend = get_backend(r)
-    kernres2(backend)(r, u, b; ndrange=inends(g, r))
+    kern(backend)(r, u, b; ndrange=inends(g, r))
     KA.synchronize(backend)
     
     nothing
