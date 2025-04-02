@@ -27,7 +27,23 @@ function blocks(g, a::AbstractArray, bsizes)
 end
 
 
-function redblack2(f, g, a::DeviceArray, parity)
+@generated function redblack(f, g, a::AbstractArray{T, N}, parity) where {T, N}
+    if N == 2
+        expr = quote
+            redblack2(f, g, a, parity)
+        end
+    elseif N == 3
+        expr = quote
+            redblack3(f, g, a, parity)
+        end
+    else
+        throw(ArgumentError("Only arrays with 2, 3 dimensions allowed"))
+    end
+    expr
+end
+
+
+function redblack2(f, g, a, parity)
     @kernel function kern(a)
         (i, j) = @index(Global, NTuple)
         
