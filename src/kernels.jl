@@ -63,9 +63,32 @@ function redblack2(f, g, a, parity)
     nothing
 end
 
+function redblack3(f, g, a, parity)
+    @kernel function kern(a)
+        (i, j, k) = @index(Global, NTuple)
+        
+        i  = g + 2 * (i - 1) + 1
+        j += g
+        k += g
 
-#function residual!(g, r::DeviceArray, u::DeviceArray, b::DeviceArray, s, c::AbstractConnector)
-function residual!(g, r, u, b, s, c::AbstractConnector)    
+        # A -2g here does not change parity.
+        p = xor(parity, iseven(k + j))
+        ind = CartesianIndex(i + p, j, k)
+        
+        f(ind)
+    
+        nothing
+    end
+
+    backend = get_backend(a)
+    kern(backend)(a; ndrange=rbends(g, a))
+    KA.synchronize(backend)
+
+    nothing
+end
+
+
+
     st = lplstencil(u)
 
     @kernel function kern(r, u, b)
