@@ -99,7 +99,7 @@ function residual!(g, r, u, b, s, c::AbstractConnector)
         ind += oneunit(ind) * g
         
         @inline l = laplacian(g, u, ind, st, c)
-        @inbounds r[ind] = s * b[ind] #+ l
+        @inbounds r[ind] = s * b[ind] + l
         
         nothing
     end
