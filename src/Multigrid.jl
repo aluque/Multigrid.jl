@@ -335,7 +335,7 @@ function fmg!(conf::MGConfig, x, b, ws)
 
     eps = norm(ws.res[1]) / sqrt(prod(innersize(g, x)))
 
-    verbosity < 2 || @info "Residual norm: $(eps)"
+    verbosity < 2 || @info "Residual norm: $(eps) (target: $(s * tolerance))"
         
     if (s * tolerance > eps)
         verbosity < 2 || @info "Convergence achieved"
