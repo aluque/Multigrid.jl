@@ -119,15 +119,6 @@ function simzeros(g, a)
     s
 end
 
-function simcoarser(g, a::AbstractArray{T, N}) where {T, N}
-    zeros(eltype(a), ntuple(i->(size(a, i) - 2g) ÷ 2 + 2g, Val(N)))
-end
-
-
-function simfiner(g, a::AbstractArray{T, N}) where {T, N}
-    zeros(eltype(a), ntuple(i->(size(a, i) - 2g) * 2 + 2g, Val(N)))
-end
-
 
 @inline function lplstencil(a::AbstractArray{T, N}) where {T, N}
     z = zero(CartesianIndex{N})

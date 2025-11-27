@@ -2,17 +2,12 @@
 
 const BLCK = (256, 1)
 
-# Later we can remove this and make it more general.
-using Metal
-#const DeviceArray{T, N} = Union{CuArray{T, N}, MtlArray{T, N}}
-const DeviceArray{T, N} = MtlArray{T, N}
-
-function simcoarser(g, a::DeviceArray{T, N}) where {T, N}
+function simcoarser(g, a::AbstractArray{T, N}) where {T, N}
     KA.zeros(get_backend(a), eltype(a), ntuple(i->(size(a, i) - 2g) ÷ 2 + 2g, Val(N)))
 end
 
 
-function simfiner(g, a::DeviceArray{T, N}) where {T, N}
+function simfiner(g, a::AbstractArray{T, N}) where {T, N}
     KA.zeros(get_backend(a), eltype(a), ntuple(i->(size(a, i) - 2g) * 2 + 2g, Val(N)))
 end
 
