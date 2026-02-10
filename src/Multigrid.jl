@@ -15,7 +15,9 @@ import KernelAbstractions as KA
 using KernelAbstractions: @index, @kernel, get_backend
 
 export MGConfig
-export LeftBnd, RightBnd, TopBnd, BottomBnd, FrontBnd, BackBnd
+export LeftBnd, RightBnd, TopBnd, BottomBnd, FrontBnd, BackBnd,
+    LeftPeriodicBnd, RightPeriodicBnd, TopPeriodicBnd, BottomPeriodicBnd, FrontPeriodicBnd,
+    BackPeriodicBnd
 export Dirichlet, Neumann
 export CartesianConnector, CylindricalConnector
 

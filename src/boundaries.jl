@@ -11,6 +11,15 @@ struct BottomBnd <: AbstractBoundary end
 struct FrontBnd <: AbstractBoundary end
 struct BackBnd <: AbstractBoundary end
 
+# Periodic bc
+struct LeftPeriodicBnd <: AbstractBoundary end
+struct RightPeriodicBnd <: AbstractBoundary end
+struct TopPeriodicBnd <: AbstractBoundary end
+struct BottomPeriodicBnd <: AbstractBoundary end
+struct FrontPeriodicBnd <: AbstractBoundary end
+struct BackPeriodicBnd <: AbstractBoundary end
+
+
 ng(a, d) = 1 - first(axes(a)[d])
 gbegin(a, d) = 0
 gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
@@ -26,6 +35,11 @@ gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
 @inline ghost2(g, a, ::LeftBnd)    = @view a[:, begin + g - 1]
 @inline ghost2(g, a, ::RightBnd)   = @view a[:, end - g + 1]
 
+@inline ghost2(g, a, ::BottomPeriodicBnd)  = @view a[begin + g - 1, :]
+@inline ghost2(g, a, ::TopPeriodicBnd)     = @view a[end - g + 1, :]
+@inline ghost2(g, a, ::LeftPeridicBnd)    = @view a[:, begin + g - 1]
+@inline ghost2(g, a, ::RightPeriodicBnd)   = @view a[:, end - g + 1]
+
 @inline ghost3(g, a, ::BottomBnd)  = @view a[begin + g - 1, :, :]
 @inline ghost3(g, a, ::TopBnd)     = @view a[end - g + 1, :, :]
 @inline ghost3(g, a, ::LeftBnd)    = @view a[:, begin + g - 1, :]
@@ -33,10 +47,22 @@ gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
 @inline ghost3(g, a, ::FrontBnd)   = @view a[:, :, begin + g - 1]
 @inline ghost3(g, a, ::BackBnd)    = @view a[:, :, end - g + 1]
 
+@inline ghost3(g, a, ::BottomPeriodicBnd)  = @view a[begin + g - 1, :, :]
+@inline ghost3(g, a, ::TopPeriodicBnd)     = @view a[end - g + 1, :, :]
+@inline ghost3(g, a, ::LeftPeriodicBnd)    = @view a[:, begin + g - 1, :]
+@inline ghost3(g, a, ::RightPeriodicBnd)   = @view a[:, end - g + 1, :]
+@inline ghost3(g, a, ::FrontPeriodicBnd)   = @view a[:, :, begin + g - 1]
+@inline ghost3(g, a, ::BackPeriodicBnd)    = @view a[:, :, end - g + 1]
+
 @inline valid2(g, a, ::BottomBnd)  = @view a[begin + g, :]
 @inline valid2(g, a, ::TopBnd)     = @view a[end - g, :]
 @inline valid2(g, a, ::LeftBnd)    = @view a[:, begin + g]
 @inline valid2(g, a, ::RightBnd)   = @view a[:, end - g]
+
+@inline valid2(g, a, ::BottomPeriodicBnd)  = @view a[end - g, :]
+@inline valid2(g, a, ::TopPeriodicBnd)     = @view a[begin + g, :]
+@inline valid2(g, a, ::LeftPeriodicBnd)    = @view a[:, end - g]
+@inline valid2(g, a, ::RightPeriodicBnd)   = @view a[:, begin + g]
 
 @inline valid3(g, a, ::BottomBnd)  = @view a[begin + g, :, :]
 @inline valid3(g, a, ::TopBnd)     = @view a[end - g, :, :]
@@ -44,6 +70,13 @@ gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
 @inline valid3(g, a, ::RightBnd)   = @view a[:, end - g, :]
 @inline valid3(g, a, ::FrontBnd)   = @view a[:, :, begin + g]
 @inline valid3(g, a, ::BackBnd)    = @view a[:, :, end - g]
+
+@inline valid3(g, a, ::BottomPeriodicBnd)  = @view a[end - g, :, :]
+@inline valid3(g, a, ::TopPeriodicBnd)     = @view a[begin + g, :, :]
+@inline valid3(g, a, ::LeftPeriodicBnd)    = @view a[:, end - g, :]
+@inline valid3(g, a, ::RightPeriodicBnd)   = @view a[:, begin + g, :]
+@inline valid3(g, a, ::FrontPeriodicBnd)   = @view a[:, :, end - g]
+@inline valid3(g, a, ::BackPeriodicBnd)    = @view a[:, :, begin + g]
 
 
 dim(::BottomBnd) = 1
