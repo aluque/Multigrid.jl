@@ -86,6 +86,13 @@ dim(::RightBnd) = 2
 dim(::FrontBnd) = 3
 dim(::BackBnd) = 3
 
+dim(::BottomPeriodicBnd) = 1
+dim(::TopPeriodicBnd) = 1
+dim(::LeftPeriodicBnd) = 2
+dim(::RightPeriodicBnd) = 2
+dim(::FrontPeriodicBnd) = 3
+dim(::BackPeriodicBnd) = 3
+
 dirind(::BottomBnd) = -1
 dirind(::TopBnd) = 1
 dirind(::LeftBnd) = -1
@@ -93,13 +100,27 @@ dirind(::RightBnd) = 1
 dirind(::FrontBnd) = -1
 dirind(::BackBnd) = 1
 
+dirind(::BottomPeriodicBnd) = -1
+dirind(::TopPeriodicBnd) = 1
+dirind(::LeftPeriodicBnd) = -1
+dirind(::RightPeriodicBnd) = 1
+dirind(::FrontPeriodicBnd) = -1
+dirind(::BackPeriodicBnd) = 1
+
 targetind(rng, ::BottomBnd) = (first(rng) - 1, first(rng))
 targetind(rng, ::TopBnd)    = (last(rng)  + 1, last(rng))
 targetind(rng, ::LeftBnd)   = (first(rng) - 1, first(rng))
 targetind(rng, ::RightBnd)  = (last(rng)  + 1, last(rng))
 targetind(rng, ::FrontBnd)  = (first(rng) - 1, first(rng))
 targetind(rng, ::BackBnd)   = (last(rng)  + 1, last(rng))
-                              
+
+targetind(rng, ::BottomPeriodicBnd) = (first(rng) - 1, last(rng))
+targetind(rng, ::TopPeriodicBnd)    = (last(rng)  + 1, first(rng))
+targetind(rng, ::LeftPeriodicBnd)   = (first(rng) - 1, last(rng))
+targetind(rng, ::RightPeriodicBnd)  = (last(rng)  + 1, first(rng))
+targetind(rng, ::FrontPeriodicBnd)  = (first(rng) - 1, last(rng))
+targetind(rng, ::BackPeriodicBnd)   = (last(rng)  + 1, first(rng))
+
 @generated function ghost(g, a::AbstractArray{T, N}, b::AbstractBoundary) where {T, N}
     if N == 2
         expr = quote
