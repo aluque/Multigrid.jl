@@ -37,7 +37,7 @@ gend(a, d) = last(axes(a)[d]) - ng(a, d) + 1
 
 @inline ghost2(g, a, ::BottomPeriodicBnd)  = @view a[begin + g - 1, :]
 @inline ghost2(g, a, ::TopPeriodicBnd)     = @view a[end - g + 1, :]
-@inline ghost2(g, a, ::LeftPeridicBnd)    = @view a[:, begin + g - 1]
+@inline ghost2(g, a, ::LeftPeriodicBnd)    = @view a[:, begin + g - 1]
 @inline ghost2(g, a, ::RightPeriodicBnd)   = @view a[:, end - g + 1]
 
 @inline ghost3(g, a, ::BottomBnd)  = @view a[begin + g - 1, :, :]
